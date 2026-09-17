@@ -1,7 +1,6 @@
 """initial clinicdesk schema"""
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 revision = '001_initial'
 down_revision = None
 branch_labels = None
@@ -17,8 +16,6 @@ def upgrade():
     op.execute("""ALTER TABLE appointments ADD CONSTRAINT no_overlapping_active_appointments
         EXCLUDE USING gist (doctor_id WITH =, tstzrange(start_time, end_time, '[)') WITH &&)
         WHERE (status != 'cancelled')""")
-    op.execute("""INSERT INTO doctors (name, specialty) VALUES
-        ('Maya Chen', 'Family Medicine'), ('Elias Romero', 'Cardiology'), ('Priya Shah', 'Pediatrics')""")
 
 def downgrade():
     op.drop_table('appointments'); op.drop_table('patients'); op.drop_table('doctors'); op.drop_table('users')

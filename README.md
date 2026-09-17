@@ -14,6 +14,7 @@ cd backend
 cp .env.example .env
 python -m pip install -r requirements.txt
 PYTHONPATH=. alembic upgrade head
+PYTHONPATH=. python scripts/seed.py
 PYTHONPATH=. uvicorn app.main:app --reload --port 8000
 ```
 
@@ -27,7 +28,7 @@ npm run dev
 
 Open `http://localhost:5173`. The API docs are at `http://localhost:8000/docs`.
 
-The first migration seeds three doctors: Maya Chen (Family Medicine), Elias Romero (Cardiology), and Priya Shah (Pediatrics). Configure `DATABASE_URL`, `SECRET_KEY`, `LATE_CANCELLATION_HOURS`, `LATE_CANCELLATION_FEE`, and `CORS_ORIGINS` in `backend/.env`.
+Run `backend/scripts/seed.py` explicitly to add the demo doctors: Maya Chen (Family Medicine), Elias Romero (Cardiology), and Priya Shah (Pediatrics). Configure `DATABASE_URL`, `SECRET_KEY`, `LATE_CANCELLATION_HOURS`, `LATE_CANCELLATION_FEE`, `FIRST_ADMIN_EMAIL`, and `CORS_ORIGINS` in `backend/.env`.
 
 ## API
 
@@ -38,14 +39,19 @@ All routes except registration, login, and health require `Authorization: Bearer
 | POST | `/auth/register` | Create a staff account. JSON: `name`, `email`, `password`. |
 | POST | `/auth/login` | Return a JWT. JSON: `email`, `password`. |
 | GET | `/health` | Basic service health check. |
-| GET | `/doctors` | List active doctors. Supports `page`, `size`, and `sort=name`. |
+| GET | `/doctors` | Paginated envelope `{items, page, size, total, pages}` of active doctors. Supports `page`, `size`, and whitelisted `sort=name`, `-name`, `id`, or `-id`. |
+| POST | `/doctors` | Create a doctor; admin role required. |
+| PATCH | `/doctors/{id}/deactivate` | Deactivate a doctor; admin role required. |
 | GET | `/doctors/{id}/schedule?date=YYYY-MM-DD` | List one doctor's appointments for a day. |
 | POST | `/appointments` | Book an appointment; accepts an existing `patient_id` or inline `patient` details. Rejects past times, invalid ranges, and overlaps. |
-| GET | `/appointments` | Search and page appointments. Supports `patient_name`, `doctor_id`, `date_from`, `date_to`, `status`, `page`, `size`, and `sort=start_time` or `sort=-start_time`. |
+| GET | `/appointments` | Paginated envelope `{items, page, size, total, pages}`. Supports `patient_name`, `patient_id`, `doctor_id`, `date_from`, `date_to`, `status`, `page`, `size`, and whitelisted `sort=start_time`, `-start_time`, `doctor_name`, `-doctor_name`, `patient_name`, `-patient_name`, `status`, or `-status`. |
 | GET | `/appointments/{id}` | Get appointment detail. |
 | PATCH | `/appointments/{id}/cancel` | Cancel an appointment and return `late_fee_charged` plus `late_fee_amount`. |
-| PATCH | `/appointments/{id}/reschedule` | Move an appointment after rechecking time and overlap rules. |
-| GET | `/patients?search=name` | Find patients by name with `page` and `size`. |
+| PATCH | `/appointments/{id}/reschedule` | Move only the appointment time after rechecking simulated time and overlap rules. |
+| PATCH | `/appointments/{id}/complete` | Mark a booked appointment completed; other statuses return 409. |
+| GET | `/patients?search=name` | Paginated patient envelope `{items, page, size, total, pages}` with `page` and `size`. |
+| POST | `/clock` | Move the simulated clock with `advance_to` or `advance_by_minutes`; synchronously runs reminders and no-show jobs and returns their counts. |
+| GET | `/outbox` | Inspect paginated notifications sorted newest-first; optionally filter by `appointment_id`. |
 
 ## Business Rules
 
@@ -54,6 +60,9 @@ All routes except registration, login, and health require `Authorization: Bearer
 - Cancelled appointments are excluded from the overlap constraint and can free a slot.
 - A cancellation is late when it is less than `LATE_CANCELLATION_HOURS` before its start. Late cancellations set `late_fee_charged=true` and use `LATE_CANCELLATION_FEE`; earlier cancellations are free.
 - The cancellation calculation is performed server-side at cancellation time, not in the browser.
+- Appointment statuses are `booked`, `cancelled`, `completed`, and `no_show`. No-shows free their doctor's slot for later bookings.
+- `MORNING_REMINDER_HOUR` controls the daily reminder hour in `CLINIC_TIMEZONE`; `NO_SHOW_WINDOW_MINUTES` controls the start-time grace period.
+- The simulated clock starts at real current time until first overridden, only moves forward, and runs all due scheduled jobs synchronously when advanced.
 
 ## Schema
 
@@ -80,6 +89,8 @@ PYTHONPATH=. pytest -q tests/test_business_rules.py -m integration
 ```
 
 The integration suite proves overlapping bookings are rejected, concurrent booking attempts cannot both succeed, and on-time versus late cancellation fee logic is applied.
+
+Clock and scheduling coverage in `tests/test_clock_features.py` proves reschedule conflicts preserve the original appointment, reminders are idempotent, and completed appointments are not marked no-show.
 
 ## Product Direction
 

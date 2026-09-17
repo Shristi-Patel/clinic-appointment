@@ -1,5 +1,7 @@
 from datetime import datetime
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, func
+from datetime import date, datetime
+from decimal import Decimal
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import ExcludeConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -41,7 +43,7 @@ class Appointment(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     late_fee_charged: Mapped[bool] = mapped_column(Boolean, default=False)
-    late_fee_amount: Mapped[float] = mapped_column(Numeric(10, 2), default=0)
+    late_fee_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=0)
     doctor: Mapped[Doctor] = relationship()
     patient: Mapped[Patient] = relationship()
     @property
@@ -52,8 +54,24 @@ class Appointment(Base):
         ExcludeConstraint(
             ('doctor_id', '='),
             (func.tstzrange(start_time, end_time, '[)'), '&&'),
-            where=(status != 'cancelled'),
+            where=(status.not_in(('cancelled', 'no_show'))),
             name='no_overlapping_active_appointments',
             using='gist',
         ),
     )
+
+class ClockState(Base):
+    __tablename__ = 'clock_state'
+    id: Mapped[int] = mapped_column(primary_key=True, default=1)
+    current_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+class Outbox(Base):
+    __tablename__ = 'outbox'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    recipient: Mapped[str] = mapped_column(String(255), nullable=False)
+    subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    appointment_id: Mapped[int | None] = mapped_column(ForeignKey('appointments.id'), nullable=True, index=True)
+    reminder_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    __table_args__ = (UniqueConstraint('appointment_id', 'reminder_date', name='uq_outbox_appointment_reminder_day'),)
