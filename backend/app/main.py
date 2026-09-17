@@ -50,6 +50,11 @@ def health(): return {'status': 'ok'}
 @app.post('/clock', response_model=ClockResponse)
 def advance_clock(payload: ClockRequest, db: Session = Depends(get_db), _: User = Depends(require_user)):
     current = get_now(db)
+    if payload.reset:
+        target = datetime.now(timezone.utc)
+        set_now(db, target)
+        db.commit()
+        return {'current_time': target, 'reminders_sent': 0, 'appointments_marked_no_show': 0}
     try:
         target = advance_value(current, payload.advance_to, payload.advance_by_minutes)
     except ValueError as error:
@@ -58,6 +63,10 @@ def advance_clock(payload: ClockRequest, db: Session = Depends(get_db), _: User 
     summary = process_due_jobs(db, current, target)
     db.commit()
     return {'current_time': target, **summary}
+
+@app.get('/clock', response_model=ClockResponse)
+def read_clock(db: Session = Depends(get_db), _: User = Depends(require_user)):
+    return {'current_time': get_now(db), 'reminders_sent': 0, 'appointments_marked_no_show': 0}
 
 
 @app.post('/auth/register', response_model=Token, status_code=201)
@@ -262,6 +271,7 @@ def complete(appointment_id: int, db: Session = Depends(get_db), _: User = Depen
 def reschedule(appointment_id: int, payload: RescheduleRequest, db: Session = Depends(get_db), user: User = Depends(require_user)):
     item = db.get(Appointment, appointment_id)
     if not item: raise HTTPException(404, 'Appointment not found')
+    if item.status != 'booked': raise HTTPException(409, 'Only booked appointments can be rescheduled')
     now = get_now(db)
     validate_times(payload.start_time, payload.end_time, now)
     history = AppointmentHistory(

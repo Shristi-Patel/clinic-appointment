@@ -54,7 +54,8 @@ All routes except registration, login, and health require `Authorization: Bearer
 | PATCH | `/patients/{id}` | Edit patient name, phone, or email. |
 | DELETE | `/patients/{id}` | Delete a patient only when no appointments or merge references remain; otherwise returns 409. |
 | PATCH | `/patients/{id}/merge` | Admin-only: set `merged_into_patient_id` for a deduplication merge target. |
-| POST | `/clock` | Move the simulated clock with `advance_to` or `advance_by_minutes`; synchronously runs reminders and no-show jobs and returns their counts. |
+| POST | `/clock` | Move the simulated clock with `advance_to` or `advance_by_minutes`; synchronously runs reminders and no-show jobs and returns their counts. Send `{ "reset": true }` to reset it to real UTC time after test/manual simulation. |
+| GET | `/clock` | Return the current simulated time so the desk can detect a stale test/manual clock. |
 | GET | `/outbox` | Inspect paginated notifications sorted newest-first; optionally filter by `appointment_id`. |
 
 ## Business Rules
@@ -67,6 +68,7 @@ All routes except registration, login, and health require `Authorization: Bearer
 - Appointment statuses are `booked`, `cancelled`, `completed`, and `no_show`. No-shows free their doctor's slot for later bookings.
 - `MORNING_REMINDER_HOUR` controls the daily reminder hour in `CLINIC_TIMEZONE`; `NO_SHOW_WINDOW_MINUTES` controls the start-time grace period.
 - The simulated clock starts at real current time until first overridden, only moves forward, and runs all due scheduled jobs synchronously when advanced.
+- A simulated clock intentionally advanced into the future remains persisted across restarts; use `POST /clock` with `{ "reset": true }` to return to real UTC time before normal desk operation.
 
 ## Schema
 

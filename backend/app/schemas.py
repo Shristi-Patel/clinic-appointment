@@ -14,6 +14,7 @@ class Token(BaseModel): access_token: str; token_type: str = 'bearer'
 class ClockRequest(BaseModel):
     advance_to: datetime | None = None
     advance_by_minutes: int | None = Field(default=None, ge=0)
+    reset: bool = False
 class ClockResponse(BaseModel):
     current_time: datetime
     reminders_sent: int

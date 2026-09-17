@@ -29,6 +29,7 @@ export const cancelAppointment = id => request(`/appointments/${id}/cancel`, { m
 export const completeAppointment = id => request(`/appointments/${id}/complete`, { method: 'PATCH' })
 export const rescheduleAppointment = (id, payload) => request(`/appointments/${id}/reschedule`, { method: 'PATCH', body: JSON.stringify(payload) })
 export const getDoctorSchedule = (id, date) => request(`/doctors/${id}/schedule?date=${date}`)
+export const getClock = () => request('/clock')
 export const searchPatients = params => request(`/patients?${query(params)}`)
 export const updatePatient = (id, payload) => request(`/patients/${id}`, { method: 'PATCH', body: JSON.stringify(payload) })
 export const deletePatient = id => request(`/patients/${id}`, { method: 'DELETE' })
