@@ -10,9 +10,9 @@ from sqlalchemy.orm import Session, joinedload
 from app.config import settings
 from app.clock import advance_value, get_now, set_now
 from app.db import get_db
-from app.models import Appointment, Doctor, Outbox, Patient, User
+from app.models import Appointment, AppointmentHistory, AppointmentIdempotency, Doctor, Outbox, Patient, User
 from app.scheduler import process_due_jobs
-from app.schemas import AppointmentCreate, AppointmentOut, CancelOut, ClockRequest, ClockResponse, DoctorCreate, DoctorOut, LoginRequest, OutboxOut, Page, PatientOut, RescheduleRequest, Token, UserCreate
+from app.schemas import AppointmentCreate, AppointmentOut, CancelOut, ClockRequest, ClockResponse, DoctorCreate, DoctorOut, DoctorUpdate, LoginRequest, OutboxOut, Page, PatientMergeRequest, PatientOut, PatientUpdate, RescheduleRequest, Token, UserCreate
 
 app = FastAPI(title='ClinicDesk API', version='1.0.0')
 app.add_middleware(CORSMiddleware, allow_origins=[x.strip() for x in settings.cors_origins.split(',')], allow_credentials=True, allow_methods=['*'], allow_headers=['*'])
@@ -104,6 +104,14 @@ def doctors(page: int = Query(1, ge=1), size: int = Query(20, ge=1, le=100), sor
 def create_doctor(payload: DoctorCreate, db: Session = Depends(get_db), _: User = Depends(require_admin)):
     doctor = Doctor(**payload.model_dump()); db.add(doctor); db.commit(); db.refresh(doctor); return doctor
 
+@app.patch('/doctors/{doctor_id}', response_model=DoctorOut)
+def update_doctor(doctor_id: int, payload: DoctorUpdate, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    doctor = db.get(Doctor, doctor_id)
+    if not doctor: raise HTTPException(404, 'Doctor not found')
+    for field, value in payload.model_dump(exclude_unset=True).items(): setattr(doctor, field, value)
+    db.commit(); db.refresh(doctor)
+    return doctor
+
 
 @app.patch('/doctors/{doctor_id}/deactivate', response_model=DoctorOut)
 def deactivate_doctor(doctor_id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
@@ -125,6 +133,34 @@ def patients(search: str = '', page: int = Query(1, ge=1), size: int = Query(20,
     total = db.scalar(select(func.count()).select_from(base.subquery())) or 0
     items = db.scalars(base.order_by(Patient.name).offset((page - 1) * size).limit(size)).all()
     return page_result(items, page, size, total)
+
+@app.patch('/patients/{patient_id}', response_model=PatientOut)
+def update_patient(patient_id: int, payload: PatientUpdate, db: Session = Depends(get_db), _: User = Depends(require_user)):
+    patient = db.get(Patient, patient_id)
+    if not patient: raise HTTPException(404, 'Patient not found')
+    for field, value in payload.model_dump(exclude_unset=True).items(): setattr(patient, field, value)
+    db.commit(); db.refresh(patient)
+    return patient
+
+@app.delete('/patients/{patient_id}', status_code=204)
+def delete_patient(patient_id: int, db: Session = Depends(get_db), _: User = Depends(require_user)):
+    patient = db.get(Patient, patient_id)
+    if not patient: raise HTTPException(404, 'Patient not found')
+    appointment_count = db.scalar(select(func.count()).select_from(Appointment).where(Appointment.patient_id == patient_id)) or 0
+    merge_count = db.scalar(select(func.count()).select_from(Patient).where(Patient.merged_into_patient_id == patient_id)) or 0
+    if appointment_count or merge_count:
+        raise HTTPException(409, 'Patient cannot be deleted while appointments or merge references exist')
+    db.delete(patient); db.commit()
+
+@app.patch('/patients/{patient_id}/merge', response_model=PatientOut)
+def merge_patient(patient_id: int, payload: PatientMergeRequest, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    patient = db.get(Patient, patient_id)
+    target = db.get(Patient, payload.merged_into_patient_id)
+    if not patient or not target: raise HTTPException(404, 'Patient not found')
+    if patient.id == target.id: raise HTTPException(422, 'A patient cannot be merged into itself')
+    patient.merged_into_patient_id = target.id
+    db.commit(); db.refresh(patient)
+    return patient
 
 
 def appointment_base(patient_name: str, patient_id: int | None, doctor_id: int | None, date_from: datetime | None, date_to: datetime | None, status_filter: str | None):
@@ -169,17 +205,36 @@ def conflict_error(error: IntegrityError):
 
 
 @app.post('/appointments', response_model=AppointmentOut, status_code=201)
-def create_appointment(payload: AppointmentCreate, db: Session = Depends(get_db), user: User = Depends(require_user)):
-    validate_times(payload.start_time, payload.end_time, get_now(db))
+def create_appointment(payload: AppointmentCreate, idempotency_key: str | None = Header(default=None, alias='Idempotency-Key'), db: Session = Depends(get_db), user: User = Depends(require_user)):
+    now = get_now(db)
+    if idempotency_key:
+        db.execute(select(func.pg_advisory_xact_lock(func.hashtext(idempotency_key))))
+        existing_key = db.scalar(select(AppointmentIdempotency).where(AppointmentIdempotency.key == idempotency_key))
+        if existing_key and existing_key.created_at >= now - timedelta(minutes=settings.idempotency_ttl_minutes):
+            existing = db.scalar(select(Appointment).options(joinedload(Appointment.patient), joinedload(Appointment.doctor)).where(Appointment.id == existing_key.appointment_id))
+            if existing: return existing
+        if existing_key:
+            db.delete(existing_key)
+            db.flush()
+    validate_times(payload.start_time, payload.end_time, now)
     if not db.get(Doctor, payload.doctor_id): raise HTTPException(404, 'Doctor not found')
     patient = db.get(Patient, payload.patient_id) if payload.patient_id else None
     if not patient and payload.patient: patient = Patient(**payload.patient.model_dump()); db.add(patient); db.flush()
     if not patient: raise HTTPException(422, 'Select an existing patient or provide patient details')
     item = Appointment(doctor_id=payload.doctor_id, patient_id=patient.id, start_time=payload.start_time, end_time=payload.end_time, created_by_user_id=user.id)
     db.add(item)
+    if idempotency_key:
+        db.flush()
+        db.add(AppointmentIdempotency(key=idempotency_key, appointment_id=item.id, created_at=now))
     try: db.commit()
     except IntegrityError as error:
-        db.rollback(); conflict = conflict_error(error)
+        db.rollback()
+        if idempotency_key and 'appointment_idempotency_key_key' in str(error.orig):
+            winner = db.scalar(select(AppointmentIdempotency).where(AppointmentIdempotency.key == idempotency_key))
+            if winner:
+                existing = db.scalar(select(Appointment).options(joinedload(Appointment.patient), joinedload(Appointment.doctor)).where(Appointment.id == winner.appointment_id))
+                if existing: return existing
+        conflict = conflict_error(error)
         if conflict: raise conflict
         raise HTTPException(400, 'Could not create appointment')
     db.refresh(item); return item
@@ -204,10 +259,21 @@ def complete(appointment_id: int, db: Session = Depends(get_db), _: User = Depen
 
 
 @app.patch('/appointments/{appointment_id}/reschedule', response_model=AppointmentOut)
-def reschedule(appointment_id: int, payload: RescheduleRequest, db: Session = Depends(get_db), _: User = Depends(require_user)):
+def reschedule(appointment_id: int, payload: RescheduleRequest, db: Session = Depends(get_db), user: User = Depends(require_user)):
     item = db.get(Appointment, appointment_id)
     if not item: raise HTTPException(404, 'Appointment not found')
-    validate_times(payload.start_time, payload.end_time, get_now(db)); item.start_time = payload.start_time; item.end_time = payload.end_time
+    now = get_now(db)
+    validate_times(payload.start_time, payload.end_time, now)
+    history = AppointmentHistory(
+        appointment_id=item.id,
+        old_start_time=item.start_time,
+        old_end_time=item.end_time,
+        changed_by_user_id=user.id,
+        changed_at=now,
+    )
+    db.add(history)
+    db.flush()
+    item.start_time = payload.start_time; item.end_time = payload.end_time
     try: db.commit()
     except IntegrityError as error:
         db.rollback(); conflict = conflict_error(error)

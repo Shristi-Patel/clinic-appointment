@@ -29,6 +29,7 @@ class Patient(Base):
     name: Mapped[str] = mapped_column(String(120), index=True)
     phone: Mapped[str | None] = mapped_column(String(40))
     email: Mapped[str | None] = mapped_column(String(255))
+    merged_into_patient_id: Mapped[int | None] = mapped_column(ForeignKey('patients.id'), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 class Appointment(Base):
@@ -59,6 +60,22 @@ class Appointment(Base):
             using='gist',
         ),
     )
+
+class AppointmentHistory(Base):
+    __tablename__ = 'appointment_history'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    appointment_id: Mapped[int] = mapped_column(ForeignKey('appointments.id'), index=True)
+    old_start_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    old_end_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    changed_by_user_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+class AppointmentIdempotency(Base):
+    __tablename__ = 'appointment_idempotency'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    key: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    appointment_id: Mapped[int] = mapped_column(ForeignKey('appointments.id'), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 class ClockState(Base):
     __tablename__ = 'clock_state'

@@ -24,7 +24,7 @@ def clock_now():
 def book(headers, doctor_id, start, name=None):
     response = client.post('/appointments', headers=headers, json={
         'doctor_id': doctor_id,
-        'patient': {'name': name or f'Patient {uuid4()}', 'email': f'{uuid4()}@example.com'},
+        'patient': {'name': name or 'Riya', 'email': f'{uuid4()}@example.com'},
         'start_time': start.isoformat(),
         'end_time': (start + timedelta(minutes=30)).isoformat(),
     })
@@ -45,7 +45,7 @@ def test_reschedule_conflict_preserves_original_time():
 def test_clock_sends_one_morning_reminder():
     headers = auth_headers(); now = clock_now(); day = (now + timedelta(days=2 + uuid4().int % 1000)).replace(hour=7, minute=0, second=0, microsecond=0)
     client.post('/clock', headers=headers, json={'advance_to': day.isoformat()})
-    appointment = book(headers, 2, day.replace(hour=10), 'Reminder Patient')
+    appointment = book(headers, 2, day.replace(hour=10), 'Riya')
     response = client.post('/clock', headers=headers, json={'advance_to': day.replace(hour=8, minute=1).isoformat()})
     assert response.status_code == 200 and response.json()['reminders_sent'] >= 1
     outbox = client.get(f"/outbox?appointment_id={appointment['id']}", headers=headers).json()
@@ -56,8 +56,8 @@ def test_clock_sends_one_morning_reminder():
 @pytest.mark.integration
 def test_clock_marks_booked_no_show_but_not_completed():
     headers = auth_headers(); now = clock_now(); start = now + timedelta(days=3, minutes=uuid4().int % 10000)
-    booked = book(headers, 3, start, 'No Show Patient')
-    completed = book(headers, 3, start + timedelta(hours=1), 'Completed Patient')
+    booked = book(headers, 3, start, 'Hiya')
+    completed = book(headers, 3, start + timedelta(hours=1), 'Adi')
     complete_response = client.patch(f"/appointments/{completed['id']}/complete", headers=headers)
     assert complete_response.status_code == 200
     response = client.post('/clock', headers=headers, json={'advance_to': (start + timedelta(minutes=29)).isoformat()})

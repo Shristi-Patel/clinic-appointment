@@ -41,15 +41,19 @@ All routes except registration, login, and health require `Authorization: Bearer
 | GET | `/health` | Basic service health check. |
 | GET | `/doctors` | Paginated envelope `{items, page, size, total, pages}` of active doctors. Supports `page`, `size`, and whitelisted `sort=name`, `-name`, `id`, or `-id`. |
 | POST | `/doctors` | Create a doctor; admin role required. |
+| PATCH | `/doctors/{id}` | Edit doctor name, specialty, or active state; admin role required. |
 | PATCH | `/doctors/{id}/deactivate` | Deactivate a doctor; admin role required. |
 | GET | `/doctors/{id}/schedule?date=YYYY-MM-DD` | List one doctor's appointments for a day. |
-| POST | `/appointments` | Book an appointment; accepts an existing `patient_id` or inline `patient` details. Rejects past times, invalid ranges, and overlaps. |
+| POST | `/appointments` | Book an appointment; accepts an existing `patient_id` or inline `patient` details. Rejects past times, invalid ranges, and overlaps. An optional `Idempotency-Key` header returns the original appointment for retries within the configured TTL. |
 | GET | `/appointments` | Paginated envelope `{items, page, size, total, pages}`. Supports `patient_name`, `patient_id`, `doctor_id`, `date_from`, `date_to`, `status`, `page`, `size`, and whitelisted `sort=start_time`, `-start_time`, `doctor_name`, `-doctor_name`, `patient_name`, `-patient_name`, `status`, or `-status`. |
 | GET | `/appointments/{id}` | Get appointment detail. |
 | PATCH | `/appointments/{id}/cancel` | Cancel an appointment and return `late_fee_charged` plus `late_fee_amount`. |
-| PATCH | `/appointments/{id}/reschedule` | Move only the appointment time after rechecking simulated time and overlap rules. |
+| PATCH | `/appointments/{id}/reschedule` | Move only the appointment time after rechecking simulated time and overlap rules; records the old range in `appointment_history`. |
 | PATCH | `/appointments/{id}/complete` | Mark a booked appointment completed; other statuses return 409. |
 | GET | `/patients?search=name` | Paginated patient envelope `{items, page, size, total, pages}` with `page` and `size`. |
+| PATCH | `/patients/{id}` | Edit patient name, phone, or email. |
+| DELETE | `/patients/{id}` | Delete a patient only when no appointments or merge references remain; otherwise returns 409. |
+| PATCH | `/patients/{id}/merge` | Admin-only: set `merged_into_patient_id` for a deduplication merge target. |
 | POST | `/clock` | Move the simulated clock with `advance_to` or `advance_by_minutes`; synchronously runs reminders and no-show jobs and returns their counts. |
 | GET | `/outbox` | Inspect paginated notifications sorted newest-first; optionally filter by `appointment_id`. |
 
@@ -75,6 +79,8 @@ appointments (
 	start_time, end_time, status, created_by_user_id -> users.id,
 	created_at, cancelled_at, late_fee_charged, late_fee_amount
 )
+appointment_history (id, appointment_id, old_start_time, old_end_time, changed_by_user_id, changed_at)
+appointment_idempotency (id, key, appointment_id, created_at)
 ```
 
 Indexes support email, doctor/patient names, appointment start time, status, and foreign keys. The migration enables PostgreSQL's `btree_gist` extension for the exclusion constraint.

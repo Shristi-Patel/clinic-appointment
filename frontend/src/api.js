@@ -21,6 +21,7 @@ export const register = payload => request('/auth/register', { method: 'POST', b
 export const login = payload => request('/auth/login', { method: 'POST', body: JSON.stringify(payload) })
 export const getDoctors = params => request(`/doctors?${query(params)}`)
 export const createDoctor = payload => request('/doctors', { method: 'POST', body: JSON.stringify(payload) })
+export const updateDoctor = (id, payload) => request(`/doctors/${id}`, { method: 'PATCH', body: JSON.stringify(payload) })
 export const getAppointments = params => request(`/appointments?${query(params)}`)
 export const getAppointment = id => request(`/appointments/${id}`)
 export const createAppointment = payload => request('/appointments', { method: 'POST', body: JSON.stringify(payload) })
@@ -29,3 +30,5 @@ export const completeAppointment = id => request(`/appointments/${id}/complete`,
 export const rescheduleAppointment = (id, payload) => request(`/appointments/${id}/reschedule`, { method: 'PATCH', body: JSON.stringify(payload) })
 export const getDoctorSchedule = (id, date) => request(`/doctors/${id}/schedule?date=${date}`)
 export const searchPatients = params => request(`/patients?${query(params)}`)
+export const updatePatient = (id, payload) => request(`/patients/${id}`, { method: 'PATCH', body: JSON.stringify(payload) })
+export const deletePatient = id => request(`/patients/${id}`, { method: 'DELETE' })

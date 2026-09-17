@@ -29,14 +29,24 @@ class Page(BaseModel, Generic[ItemT]):
 class DoctorCreate(BaseModel):
     name: str = Field(min_length=2, max_length=120)
     specialty: str = Field(min_length=2, max_length=120)
+class DoctorUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=120)
+    specialty: str | None = Field(default=None, min_length=2, max_length=120)
+    active: bool | None = None
 class DoctorOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int; name: str; specialty: str; active: bool
 class PatientCreate(BaseModel):
     name: str = Field(min_length=2, max_length=120); phone: str | None = None; email: EmailStr | None = None
+class PatientUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=120)
+    phone: str | None = None
+    email: EmailStr | None = None
+class PatientMergeRequest(BaseModel):
+    merged_into_patient_id: int
 class PatientOut(PatientCreate):
     model_config = ConfigDict(from_attributes=True)
-    id: int; created_at: datetime
+    id: int; created_at: datetime; merged_into_patient_id: int | None = None
 class AppointmentCreate(BaseModel):
     doctor_id: int; patient_id: int | None = None; patient: PatientCreate | None = None
     start_time: datetime; end_time: datetime

@@ -15,7 +15,7 @@ def auth_headers():
     return {'Authorization': f"Bearer {response.json()['access_token']}"}
 
 def booking_payload(start, end, doctor_id=1):
-    return {'doctor_id': doctor_id, 'patient': {'name': f'Patient {uuid4()}'}, 'start_time': start.isoformat(), 'end_time': end.isoformat()}
+    return {'doctor_id': doctor_id, 'patient': {'name': 'Alia'}, 'start_time': start.isoformat(), 'end_time': end.isoformat()}
 
 def unique_start(days=3):
     return datetime.now(timezone.utc) + timedelta(days=days, minutes=uuid4().int % 100000)

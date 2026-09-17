@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     morning_reminder_hour: int = 8
     no_show_window_minutes: int = 30
     clinic_timezone: str = 'UTC'
+    idempotency_ttl_minutes: int = 1440
     cors_origins: str = 'http://localhost:5173'
     model_config = SettingsConfigDict(env_file='.env', extra='ignore')
 
